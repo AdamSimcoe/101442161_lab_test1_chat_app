@@ -1,0 +1,208 @@
+<!-- Created by Adam Simcoe - 101442161 -->
+<!-- Last Updated on February 5th, 2025 -->
+
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Chat App - Chat Rooms</title>
+        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+        <style>
+            #chatContainer {
+                height: 80vh;
+                overflow-y: auto;
+                border: 1px solid black;
+                padding: 15px;
+                background: white;
+            }
+
+            .message {
+                margin-bottom: 10px;
+                padding: 5px;
+                border-radius: 5px;
+            }
+
+            .private-message {
+                background: lightgreen;
+            }
+
+            .timestamp {
+                font-size: 0.8em;
+                color: gray;
+            }
+
+            #typingIndicator {
+                font-style: italic;
+                color: aqua;
+                margin-top: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <nav class="navbar navbar-expand-lg navbar-light bg-light">
+            <a class="navbar-brand" href="#">Chat App</a>
+            <div class="ml-auto">
+                <button id="logoutBtn" class="btn btn-outline-danger">Logout</button>
+            </div>
+        </nav>
+
+        <div class="container-fluid mt-3">
+            <div class="row">
+                <div class="col-md-3">
+                    <h3>Available Chat Rooms</h3>
+                    <ul class="list-group" id="roomList">
+                        <li class="list-group-item room-item" data-room="devops">DevOps</li>
+                        <li class="list-group-item room-item" data-room="cloud computing">Cloud Computing</li>
+                        <li class="list-group-item room-item" data-room="covid19">COVID19</li>
+                        <li class="list-group-item room-item" data-room="sports">Sports</li>
+                        <li class="list-group-item room-item" data-room="nodejs">NodeJS</li>
+                    </ul>
+                </div>
+
+                <div class="col-md-9">
+                    <h3 id="currentRoomHeader">Join a Chat Room</h3>
+                    <div id="chatContainer"></div>
+                    <div id="typingIndicator" class="mt-2 text-muted"></div>
+
+                    <form id="messageForm" class="mt-3">
+                        <div class="input-group">
+                            <input type="text" id="messageInput" class="form-control" placeholder="Send a message!" required>
+                
+                            <div class="input-group-append">
+                                <button class="btn btn-primary" type="submit">Send</button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div class="mt-3">
+                        <h4>Send a Private Message</h4>
+                        <form id="privateMessageForm">
+                            <div class="form-group">
+                                <input type="text" id="toUser" class="form-control" placeholder="Username to send to." required>
+                            </div>
+
+                            <div class="form-group">
+                                <input type="text" id="privateMessageInput" class="form-control" placeholder="Type your private message here.">
+                            </div>
+
+                            <button type="submit" class="btn btn-warning">Send Private Message</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- JS Scripts -->
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+        <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+        <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+
+        <script>
+
+            var user = JSON.parse(localStorage.getItem('user'));
+
+            if (!user) {
+                window.location.href = 'login.html';
+            }
+
+            var socket = io('http://localhost:5000');
+
+            socket.emit('registerUser', user.username);
+
+            var currentRoom = '';
+
+            function appendMessage(content, isPrivate) {
+                
+                var messageClass = 'message';
+
+                if (isPrivate) {
+                    messageClass += ' private-message';
+                }
+
+                var timestamp = new Date().toLocaleTimeString();
+                
+                // Add label to indicate message is private
+                var label = isPrivate ? ' (private)' : '';
+
+                $('#chatContainer').append(
+                    `<div class="${messageClass}">
+                        <strong>${content.username}${label}:</strong> ${content.message}
+                        <div class="timestamp">${timestamp}</div>
+                    </div>`
+                );
+
+                $('#chatContainer').scrollTop($('#chatContainer')[0].scrollHeight);
+            }
+
+            socket.on('groupMessage', function(data){
+                appendMessage({username: data.username, message: data.message}, false);
+            });
+
+            socket.on('notification', function(message) {
+                $('#typingIndicator').text(message);
+                setTimeout(function(){$('#typingIndicator').text('');}, 2000);
+            });
+
+            socket.on('privateMessage', function(data){
+                appendMessage({username: data.from_user, message: data.message}, true);
+            });
+
+            $('.room-item').on('click', function(){
+                var room = $(this).data('room');
+
+                if (currentRoom) {
+                    socket.emit('leaveRoom');
+                }
+
+                currentRoom = room;
+                $('#currentRoomHeader').text('Room: ' + room);
+                $('#chatContainer').empty();
+                
+                socket.emit('joinRoom', {username: user.username, room: room});
+                console.log('Joined room:', room);
+            });
+
+            $('#messageForm').on('submit', function(e){
+                e.preventDefault();
+
+                var message = $('#messageInput').val().trim();
+                console.log("Current room:", currentRoom);
+
+                if (message && currentRoom) {
+                    console.log('Groupmessage with:', {
+                        username: user.username,
+                        room: currentRoom,
+                        message: message
+                    });
+                    socket.emit('groupMessage', {username: user.username, room: currentRoom, message: message});
+                    $('#messageInput').val('');
+                } else {
+                    console.error('Message empty or currentRoom not set.');
+                }
+            });
+
+            $('#messageInput').on('keypress', function(){
+                
+                if (currentRoom) {
+                    socket.emit('typingIndicator', {username: user.username, room: currentRoom});
+                }
+            });
+
+            $('#privateMessageForm').on('submit', function(e){
+                e.preventDefault();
+
+                var toUser = $('#toUser').val().trim();
+                var message = $('#privateMessageInput').val().trim();
+
+                if (toUser && message) {
+                    socket.emit('privateMessage', {from_user: user.username, to_user: toUser, message: message});
+                    $('#privateMessageInput').val('');
+                }
+            });
+
+            $('#logoutBtn').on('click', function() {
+                localStorage.removeItem('user');
+                window.location.href = 'login.html';
+            });
+        </script>
+    </body>
+</html>
